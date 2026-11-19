@@ -10,7 +10,7 @@ from .models import *
 from .schemas import *
 from .auth import current,writer,supervisor,verify,token
 from .common import pack,lock,add,audit
-from . import renewal_service as renewal,isolation_service as isolation,harvest_service as harvest,sharing_service as sharing
+from . import renewal_service as renewal,isolation_service as isolation,harvest_service as harvest,sharing_service as sharing,flowering_service as flowering_hist
 from .middleware import Trace,Burst
 queue=redis.Redis.from_url(os.environ['REDIS_URL'],decode_responses=True)
 @asynccontextmanager
@@ -31,7 +31,9 @@ def login(d:Login,s=Depends(session)):
 def me(u=Depends(current)):return {'email':u.email,'role':u.role}
 @app.get('/archive')
 def archive(s=Depends(session),u=Depends(current)):
-    return {cls.__tablename__:[pack(x)for x in s.scalars(select(cls).order_by(cls.id))]for cls in (Accession,Lot,GerminationTest,Regeneration,Plot,Flowering,Pollination,Harvest,Distribution)}
+    data={cls.__tablename__:[pack(x)for x in s.scalars(select(cls).order_by(cls.id))]for cls in (Accession,Lot,GerminationTest,Regeneration,Plot,Flowering,Pollination,Harvest,Distribution,FloweringHistory,Conflict)}
+    data['open_conflicts']=flowering_hist.open_conflicts(s)
+    return data
 @app.get('/audits')
 def audits(s=Depends(session),u=Depends(current)):return [pack(x)for x in s.scalars(select(Audit).order_by(Audit.id.desc()).limit(50))]
 @app.post('/accessions')
@@ -76,6 +78,22 @@ def edit_flowering(id:int,d:FlowerInput,s=Depends(session),u=Depends(writer)):
 @app.post('/flowerings/{id}/assign')
 def assign(id:int,s=Depends(session),u=Depends(supervisor)):
     x=isolation.assign(s,id,u);s.commit();return x
+@app.post('/flowerings/{id}/observations')
+def observe(id:int,d:ObservationInput,s=Depends(session),u=Depends(writer)):
+    x=isolation.observe(s,id,d,u);s.commit();return x
+@app.get('/flowering-history')
+def history(s=Depends(session),u=Depends(current)):
+    return [pack(x)for x in s.scalars(select(FloweringHistory).order_by(FloweringHistory.crop,FloweringHistory.season_year))]
+@app.post('/flowering-history')
+def add_history(d:FloweringHistoryInput,s=Depends(session),u=Depends(writer)):
+    add(s,FloweringHistory(crop=d.crop,season_year=d.season_year,sowing_date=str(d.sowing_date),first_flower=str(d.first_flower),last_flower=str(d.last_flower),note=d.note))
+    # 补录往年档案后，重算未核准花期，使新样本立即参与本季估计。
+    flowering_hist.replan(s,d.crop,u)
+    audit(s,u,'登记同作物花期档案 '+d.crop+' '+str(d.season_year));s.commit()
+    return pack(s.scalar(select(FloweringHistory).where(FloweringHistory.crop==d.crop,FloweringHistory.sowing_date==str(d.sowing_date))))
+@app.get('/conflicts')
+def conflicts(s=Depends(session),u=Depends(current)):
+    return flowering_hist.open_conflicts(s)
 @app.post('/pollinations')
 def pollen(d:PollenInput,s=Depends(session),u=Depends(writer)):
     x=isolation.prepare(s,d,u);s.commit();return x

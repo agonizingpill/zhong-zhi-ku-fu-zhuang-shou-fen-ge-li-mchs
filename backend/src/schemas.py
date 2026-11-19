@@ -36,10 +36,32 @@ class FlowerInput(BaseModel):
     plot_id:int
     start:date
     end:date
+    sowing_date:date|None=None
     @model_validator(mode='after')
     def valid(self):
         if self.end<self.start:raise ValueError('花期结束不得早于开始')
         if (self.end-self.start).days>60:raise ValueError('花期不超过60天')
+        if self.sowing_date and self.sowing_date>self.start:raise ValueError('播种日不得晚于预填始花日')
+        return self
+class ObservationInput(BaseModel):
+    observed_start:date
+    observed_end:date
+    note:str=Field(default='',max_length=200)
+    @model_validator(mode='after')
+    def valid(self):
+        if self.observed_end<self.observed_start:raise ValueError('实测终花日不得早于始花日')
+        return self
+class FloweringHistoryInput(BaseModel):
+    crop:str=Field(min_length=2,max_length=40)
+    season_year:int=Field(ge=2000,le=2100)
+    sowing_date:date
+    first_flower:date
+    last_flower:date
+    note:str=Field(default='',max_length=200)
+    @model_validator(mode='after')
+    def valid(self):
+        if self.first_flower<self.sowing_date:raise ValueError('初花日不得早于播种日')
+        if self.last_flower<self.first_flower:raise ValueError('末花日不得早于初花日')
         return self
 class PollenInput(BaseModel):
     regeneration_id:int

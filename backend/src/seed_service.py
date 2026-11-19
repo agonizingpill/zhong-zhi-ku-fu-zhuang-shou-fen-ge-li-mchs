@@ -21,4 +21,13 @@ def seed():
             if not s.scalar(select(Plot).where(Plot.code==code)):s.add(Plot(code=code,row=i//6,position=i%6,capacity=250))
         s.flush();lot=s.scalar(select(Lot).where(Lot.code=='QH-021-G3'))
         if not s.scalar(select(GerminationTest).where(GerminationTest.code=='GT-SEED-80')):s.add(GerminationTest(lot_id=lot.id,code='GT-SEED-80',sampled=100,germinated=80,state='recorded'))
-        s.commit();return {cls.__tablename__:s.scalar(select(func.count()).select_from(cls))for cls in (User,Accession,Lot,GerminationTest,Regeneration,Plot,Flowering,Pollination,Harvest,Distribution)}
+        # 同作物往年播种→初花/末花，历季天数用于估计本季花期；青豆样本足够，玉米留给“样本不足需待核”演示。
+        for crop,year,sowing,first,last,note in [
+            ('青豆',2023,'2023-04-12','2023-06-01','2023-06-26','北圃露地，正常季'),
+            ('青豆',2024,'2024-04-18','2024-06-08','2024-07-02','初夏偏凉，初花略迟'),
+            ('青豆',2025,'2025-04-09','2025-05-29','2025-06-24','常规播期'),
+            ('玉米',2025,'2025-05-06','2025-07-02','2025-07-15','仅一季档案，用于估计样本不足待核'),
+        ]:
+            if not s.scalar(select(FloweringHistory).where(FloweringHistory.crop==crop,FloweringHistory.sowing_date==sowing)):
+                s.add(FloweringHistory(crop=crop,season_year=year,sowing_date=sowing,first_flower=first,last_flower=last,note=note))
+        s.commit();return {cls.__tablename__:s.scalar(select(func.count()).select_from(cls))for cls in (User,Accession,Lot,GerminationTest,Regeneration,Plot,Flowering,Pollination,Harvest,Distribution,FloweringHistory,Conflict)}
